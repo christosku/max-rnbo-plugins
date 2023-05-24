@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-# Makefile for max-gen-plugins #
+# Makefile for max-rnbo-plugins #
 # ---------------------------- #
 # Created by falkTX
 #
@@ -19,7 +19,7 @@ CUSTOM_TTL = $(subst custom-ttl/,,$(wildcard custom-ttl/*))
 all: plugins gen
 
 plugins:
-	$(foreach p,$(PLUGINS),$(MAKE) all -f max-gen/Makefile.common.mk NAME=${p})
+	$(foreach p,$(PLUGINS),$(MAKE) all -f max-rnbo/Makefile.common.mk NAME=${p})
 
 gen: plugins pregen
 	$(foreach p,$(CUSTOM_TTL),cp custom-ttl/${p}/*.ttl bin/${p}.lv2/)
@@ -38,7 +38,7 @@ endif
 # cleanup
 
 clean:
-	$(foreach p,$(PLUGINS),$(MAKE) clean -f max-gen/Makefile.common.mk NAME=${p})
+	$(foreach p,$(PLUGINS),$(MAKE) clean -f max-rnbo/Makefile.common.mk NAME=${p})
 	$(MAKE) clean -C dpf/utils/lv2-ttl-generator
 	rm -rf bin build
 

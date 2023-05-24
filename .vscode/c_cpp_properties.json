@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/max-rnbo/rnbo/common",
+                "${workspaceFolder}/plugins/max-rnbo-plugin",
+                "${workspaceFolder}/dpf/distrho",
+                "${workspaceFolder}/max-rnbo/rnbo"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
