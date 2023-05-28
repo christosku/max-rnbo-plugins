@@ -1,8 +1,8 @@
 #pragma once
 
-#define DISTRHO_PLUGIN_BRAND   "ExampleBrand"
-#define DISTRHO_PLUGIN_NAME    "ExampleNamez1234"
-#define DISTRHO_PLUGIN_URI     "http://example.com/try/xzyzzz"
+#define DISTRHO_PLUGIN_BRAND   "RNBO"
+#define DISTRHO_PLUGIN_NAME    "RNBO"
+#define DISTRHO_PLUGIN_URI     "http://example.com/try/rnbo"
 
 #define DISTRHO_PLUGIN_HAS_UI        0
 #define DISTRHO_PLUGIN_IS_RT_SAFE    1

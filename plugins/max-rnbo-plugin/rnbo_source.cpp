@@ -89,8 +89,6 @@ rnbomatic* getTopLevelPatcher() {
 
 void cancelClockEvents()
 {
-    getEngine()->flushClockEvents(this, 760652352, false);
-    getEngine()->flushClockEvents(this, 1812006465, false);
 }
 
 template <typename T> void listquicksort(T& arr, T& sortindices, Int l, Int h, bool ascending) {
@@ -128,24 +126,8 @@ template <typename T> void listswapelements(T& arr, Int a, Int b) {
     arr[(Index)b] = tmp;
 }
 
-SampleIndex currentsampletime() {
-    return this->audioProcessSampleCount + this->sampleOffsetIntoNextAudioBuffer;
-}
-
-number mstosamps(MillisecondTime ms) {
-    return ms * this->sr * 0.001;
-}
-
-inline number safediv(number num, number denom) {
-    return (denom == 0.0 ? 0.0 : num / denom);
-}
-
-number maximum(number x, number y) {
-    return (x < y ? y : x);
-}
-
-inline number safesqrt(number num) {
-    return (num > 0.0 ? rnbo_sqrt(num) : 0.0);
+number samplerate() {
+    return this->sr;
 }
 
 MillisecondTime currenttime() {
@@ -181,41 +163,40 @@ void process(
     Index numOutputs,
     Index n
 ) {
+    RNBO_UNUSED(numInputs);
+    RNBO_UNUSED(inputs);
     this->vs = n;
     this->updateTime(this->getEngine()->getCurrentTime());
     SampleValue * out1 = (numOutputs >= 1 && outputs[0] ? outputs[0] : this->dummyBuffer);
     SampleValue * out2 = (numOutputs >= 2 && outputs[1] ? outputs[1] : this->dummyBuffer);
-    SampleValue * out3 = (numOutputs >= 3 && outputs[2] ? outputs[2] : this->dummyBuffer);
-    const SampleValue * in1 = (numInputs >= 1 && inputs[0] ? inputs[0] : this->zeroBuffer);
-    this->line_01_perform(out1, n);
 
-    this->average_rms_tilde_01_perform(
-        in1,
-        this->average_rms_tilde_01_windowSize,
-        this->average_rms_tilde_01_reset,
+    this->cycle_tilde_01_perform(
+        this->cycle_tilde_01_frequency,
+        this->cycle_tilde_01_phase_offset,
         this->signals[0],
+        this->dummyBuffer,
         n
     );
 
-    this->slide_tilde_01_perform(
-        this->signals[0],
-        this->slide_tilde_01_up,
-        this->slide_tilde_01_down,
-        out2,
+    this->cycle_tilde_02_perform(
+        this->cycle_tilde_02_frequency,
+        this->cycle_tilde_02_phase_offset,
+        this->signals[1],
+        this->dummyBuffer,
         n
     );
 
-    this->dspexpr_01_perform(in1, this->signals[0], n);
+    this->signaladder_01_perform(this->signals[1], this->signals[0], out1, n);
 
-    this->rampsmooth_tilde_01_perform(
+    this->cycle_tilde_03_perform(
+        this->cycle_tilde_03_frequency,
+        this->cycle_tilde_03_phase_offset,
         this->signals[0],
-        this->rampsmooth_tilde_01_up,
-        this->rampsmooth_tilde_01_down,
-        out3,
+        this->dummyBuffer,
         n
     );
 
-    this->peakamp_01_perform(in1, n);
+    this->signaladder_02_perform(this->signals[0], this->signals[1], out2, n);
     this->stackprotect_perform(n);
     this->globaltransport_advance();
     this->audioProcessSampleCount += this->vs;
@@ -225,7 +206,7 @@ void prepareToProcess(number sampleRate, Index maxBlockSize, bool force) {
     if (this->maxvs < maxBlockSize || !this->didAllocateSignals) {
         Index i;
 
-        for (i = 0; i < 1; i++) {
+        for (i = 0; i < 2; i++) {
             this->signals[i] = resizeSignal(this->signals[i], this->maxvs, maxBlockSize);
         }
 
@@ -247,9 +228,9 @@ void prepareToProcess(number sampleRate, Index maxBlockSize, bool force) {
         this->invsr = 1 / sampleRate;
     }
 
-    this->average_rms_tilde_01_dspsetup(forceDSPSetup);
-    this->rampsmooth_tilde_01_dspsetup(forceDSPSetup);
-    this->peakamp_01_dspsetup(forceDSPSetup);
+    this->cycle_tilde_01_dspsetup(forceDSPSetup);
+    this->cycle_tilde_02_dspsetup(forceDSPSetup);
+    this->cycle_tilde_03_dspsetup(forceDSPSetup);
     this->globaltransport_dspsetup(forceDSPSetup);
 
     if (sampleRateChanged)
@@ -277,7 +258,7 @@ DataRef* getDataRef(DataRefIndex index)  {
     switch (index) {
     case 0:
         {
-        return addressOf(this->average_rms_tilde_01_av_bufferobj);
+        return addressOf(this->RNBODefaultSinus);
         break;
         }
     default:
@@ -291,26 +272,47 @@ DataRefIndex getNumDataRefs() const {
     return 1;
 }
 
-void fillDataRef(DataRefIndex , DataRef& ) {}
+void fillRNBODefaultSinus(DataRef& ref) {
+    Float64BufferRef buffer;
+    buffer = new Float64Buffer(ref);
+    number bufsize = buffer->getSize();
 
-void zeroDataRef(DataRef& ref) {
-    ref->setZero();
+    for (Index i = 0; i < bufsize; i++) {
+        buffer[i] = rnbo_cos(i * 3.14159265358979323846 * 2. / bufsize);
+    }
+}
+
+void fillDataRef(DataRefIndex index, DataRef& ref) {
+    switch (index) {
+    case 0:
+        {
+        this->fillRNBODefaultSinus(ref);
+        break;
+        }
+    }
 }
 
 void processDataViewUpdate(DataRefIndex index, MillisecondTime time) {
     this->updateTime(time);
 
     if (index == 0) {
-        this->average_rms_tilde_01_av_buffer = new Float64Buffer(this->average_rms_tilde_01_av_bufferobj);
+        this->cycle_tilde_01_buffer = new Float64Buffer(this->RNBODefaultSinus);
+        this->cycle_tilde_01_bufferUpdated();
+        this->cycle_tilde_02_buffer = new Float64Buffer(this->RNBODefaultSinus);
+        this->cycle_tilde_02_bufferUpdated();
+        this->cycle_tilde_03_buffer = new Float64Buffer(this->RNBODefaultSinus);
+        this->cycle_tilde_03_bufferUpdated();
     }
 }
 
 void initialize() {
-    this->average_rms_tilde_01_av_bufferobj = initDataRef("average_rms_tilde_01_av_bufferobj", true, nullptr, "buffer~");
+    this->RNBODefaultSinus = initDataRef("RNBODefaultSinus", true, nullptr, "buffer~");
     this->assign_defaults();
     this->setState();
-    this->average_rms_tilde_01_av_bufferobj->setIndex(0);
-    this->average_rms_tilde_01_av_buffer = new Float64Buffer(this->average_rms_tilde_01_av_bufferobj);
+    this->RNBODefaultSinus->setIndex(0);
+    this->cycle_tilde_01_buffer = new Float64Buffer(this->RNBODefaultSinus);
+    this->cycle_tilde_02_buffer = new Float64Buffer(this->RNBODefaultSinus);
+    this->cycle_tilde_03_buffer = new Float64Buffer(this->RNBODefaultSinus);
     this->initializeObjects();
     this->allocateDataRefs();
     this->startup();
@@ -334,14 +336,16 @@ void setState() {}
 
 void getPreset(PatcherStateInterface& preset) {
     preset["__presetid"] = "rnbo";
-    this->param_01_getPresetValue(getSubState(preset, "rampup"));
-    this->param_02_getPresetValue(getSubState(preset, "rampdown"));
+    this->param_01_getPresetValue(getSubState(preset, "one"));
+    this->param_02_getPresetValue(getSubState(preset, "two"));
+    this->param_03_getPresetValue(getSubState(preset, "three"));
 }
 
 void setPreset(MillisecondTime time, PatcherStateInterface& preset) {
     this->updateTime(time);
-    this->param_01_setPresetValue(getSubState(preset, "rampup"));
-    this->param_02_setPresetValue(getSubState(preset, "rampdown"));
+    this->param_01_setPresetValue(getSubState(preset, "one"));
+    this->param_02_setPresetValue(getSubState(preset, "two"));
+    this->param_03_setPresetValue(getSubState(preset, "three"));
 }
 
 void processTempoEvent(MillisecondTime time, Tempo tempo) {
@@ -388,6 +392,11 @@ void setParameterValue(ParameterIndex index, ParameterValue v, MillisecondTime t
         this->param_02_value_set(v);
         break;
         }
+    case 2:
+        {
+        this->param_03_value_set(v);
+        break;
+        }
     }
 }
 
@@ -409,6 +418,10 @@ ParameterValue getParameterValue(ParameterIndex index)  {
         {
         return this->param_02_value;
         }
+    case 2:
+        {
+        return this->param_03_value;
+        }
     default:
         {
         return 0;
@@ -425,18 +438,22 @@ ParameterIndex getNumSignalOutParameters() const {
 }
 
 ParameterIndex getNumParameters() const {
-    return 2;
+    return 3;
 }
 
 ConstCharPointer getParameterName(ParameterIndex index) const {
     switch (index) {
     case 0:
         {
-        return "rampup";
+        return "one";
         }
     case 1:
         {
-        return "rampdown";
+        return "two";
+        }
+    case 2:
+        {
+        return "three";
         }
     default:
         {
@@ -449,11 +466,15 @@ ConstCharPointer getParameterId(ParameterIndex index) const {
     switch (index) {
     case 0:
         {
-        return "rampup";
+        return "one";
         }
     case 1:
         {
-        return "rampdown";
+        return "two";
+        }
+    case 2:
+        {
+        return "three";
         }
     default:
         {
@@ -468,9 +489,9 @@ void getParameterInfo(ParameterIndex index, ParameterInfo * info) const {
         case 0:
             {
             info->type = ParameterTypeNumber;
-            info->initialValue = 200;
-            info->min = 0;
-            info->max = 44100;
+            info->initialValue = 440;
+            info->min = 110;
+            info->max = 880;
             info->exponent = 1;
             info->steps = 0;
             info->debug = false;
@@ -487,9 +508,28 @@ void getParameterInfo(ParameterIndex index, ParameterInfo * info) const {
         case 1:
             {
             info->type = ParameterTypeNumber;
-            info->initialValue = 1000;
-            info->min = 0;
-            info->max = 44100;
+            info->initialValue = 550;
+            info->min = 110;
+            info->max = 880;
+            info->exponent = 1;
+            info->steps = 0;
+            info->debug = false;
+            info->saveable = true;
+            info->transmittable = true;
+            info->initialized = true;
+            info->visible = true;
+            info->displayName = "";
+            info->unit = "";
+            info->ioType = IOTypeUndefined;
+            info->signalIndex = INVALID_INDEX;
+            break;
+            }
+        case 2:
+            {
+            info->type = ParameterTypeNumber;
+            info->initialValue = 660;
+            info->min = 110;
+            info->max = 880;
             info->exponent = 1;
             info->steps = 0;
             info->debug = false;
@@ -529,10 +569,11 @@ ParameterValue convertToNormalizedParameterValue(ParameterIndex index, Parameter
     switch (index) {
     case 0:
     case 1:
+    case 2:
         {
         {
-            value = (value < 0 ? 0 : (value > 44100 ? 44100 : value));
-            ParameterValue normalizedValue = (value - 0) / (44100 - 0);
+            value = (value < 110 ? 110 : (value > 880 ? 880 : value));
+            ParameterValue normalizedValue = (value - 110) / (880 - 110);
             return normalizedValue;
         }
         }
@@ -549,12 +590,13 @@ ParameterValue convertFromNormalizedParameterValue(ParameterIndex index, Paramet
     switch (index) {
     case 0:
     case 1:
+    case 2:
         {
         {
             value = (value < 0 ? 0 : (value > 1 ? 1 : value));
 
             {
-                return 0 + value * (44100 - 0);
+                return 110 + value * (880 - 110);
             }
         }
         }
@@ -574,6 +616,10 @@ ParameterValue constrainParameterValue(ParameterIndex index, ParameterValue valu
     case 1:
         {
         return this->param_02_value_constrain(value);
+        }
+    case 2:
+        {
+        return this->param_03_value_constrain(value);
         }
     default:
         {
@@ -605,23 +651,7 @@ void processParamInitEvents() {
     }
 }
 
-void processClockEvent(MillisecondTime time, ClockId index, bool hasValue, ParameterValue value) {
-    RNBO_UNUSED(hasValue);
-    this->updateTime(time);
-
-    switch (index) {
-    case 760652352:
-        {
-        this->line_01_target_bang();
-        break;
-        }
-    case 1812006465:
-        {
-        this->peakamp_01_output_set(value);
-        break;
-        }
-    }
-}
+void processClockEvent(MillisecondTime , ClockId , bool , ParameterValue ) {}
 
 void processOutletAtCurrentTime(EngineLink* , OutletIndex , ParameterValue ) {}
 
@@ -673,7 +703,7 @@ void param_01_value_set(number v) {
         this->param_01_lastValue = this->param_01_value;
     }
 
-    this->rampsmooth_tilde_01_up_set(v);
+    this->cycle_tilde_01_frequency_set(v);
 }
 
 void param_02_value_set(number v) {
@@ -686,18 +716,20 @@ void param_02_value_set(number v) {
         this->param_02_lastValue = this->param_02_value;
     }
 
-    this->rampsmooth_tilde_01_down_set(v);
+    this->cycle_tilde_02_frequency_set(v);
 }
 
-void line_01_target_bang() {}
+void param_03_value_set(number v) {
+    v = this->param_03_value_constrain(v);
+    this->param_03_value = v;
+    this->sendParameter(2, false);
 
-void peakamp_01_output_set(number v) {
-    this->peakamp_01_output = v;
-
-    {
-        list converted = {v};
-        this->line_01_segments_set(converted);
+    if (this->param_03_value != this->param_03_lastValue) {
+        this->getEngine()->presetTouched();
+        this->param_03_lastValue = this->param_03_value;
     }
+
+    this->cycle_tilde_03_frequency_set(v);
 }
 
 number msToSamps(MillisecondTime ms, number sampleRate) {
@@ -721,27 +753,33 @@ bool hasFixedVectorSize() const {
 }
 
 Index getNumInputChannels() const {
-    return 1;
+    return 0;
 }
 
 Index getNumOutputChannels() const {
-    return 3;
+    return 2;
 }
 
 void allocateDataRefs() {
-    this->average_rms_tilde_01_av_buffer = this->average_rms_tilde_01_av_buffer->allocateIfNeeded();
+    this->cycle_tilde_01_buffer->requestSize(16384, 1);
+    this->cycle_tilde_01_buffer->setSampleRate(this->sr);
+    this->cycle_tilde_02_buffer->requestSize(16384, 1);
+    this->cycle_tilde_02_buffer->setSampleRate(this->sr);
+    this->cycle_tilde_03_buffer->requestSize(16384, 1);
+    this->cycle_tilde_03_buffer->setSampleRate(this->sr);
+    this->cycle_tilde_01_buffer = this->cycle_tilde_01_buffer->allocateIfNeeded();
+    this->cycle_tilde_02_buffer = this->cycle_tilde_02_buffer->allocateIfNeeded();
+    this->cycle_tilde_03_buffer = this->cycle_tilde_03_buffer->allocateIfNeeded();
 
-    if (this->average_rms_tilde_01_av_bufferobj->hasRequestedSize()) {
-        if (this->average_rms_tilde_01_av_bufferobj->wantsFill())
-            this->zeroDataRef(this->average_rms_tilde_01_av_bufferobj);
+    if (this->RNBODefaultSinus->hasRequestedSize()) {
+        if (this->RNBODefaultSinus->wantsFill())
+            this->fillRNBODefaultSinus(this->RNBODefaultSinus);
 
         this->getEngine()->sendDataRefUpdated(0);
     }
 }
 
-void initializeObjects() {
-    this->average_rms_tilde_01_av_init();
-}
+void initializeObjects() {}
 
 void sendOutlet(OutletIndex index, ParameterValue value) {
     this->getEngine()->sendOutlet(this, index, value);
@@ -758,246 +796,190 @@ void startup() {
         this->scheduleParamInit(1, 0);
     }
 
+    {
+        this->scheduleParamInit(2, 0);
+    }
+
     this->processParamInitEvents();
 }
 
 static number param_01_value_constrain(number v) {
-    v = (v > 44100 ? 44100 : (v < 0 ? 0 : v));
+    v = (v > 880 ? 880 : (v < 110 ? 110 : v));
     return v;
 }
 
-void rampsmooth_tilde_01_up_set(number v) {
-    this->rampsmooth_tilde_01_up = v;
+void cycle_tilde_01_frequency_set(number v) {
+    this->cycle_tilde_01_frequency = v;
 }
 
 static number param_02_value_constrain(number v) {
-    v = (v > 44100 ? 44100 : (v < 0 ? 0 : v));
+    v = (v > 880 ? 880 : (v < 110 ? 110 : v));
     return v;
 }
 
-void rampsmooth_tilde_01_down_set(number v) {
-    this->rampsmooth_tilde_01_down = v;
+void cycle_tilde_02_frequency_set(number v) {
+    this->cycle_tilde_02_frequency = v;
 }
 
-void line_01_perform(SampleValue * out, Index n) {
-    auto __line_01_currentValue = this->line_01_currentValue;
-    Index i = 0;
-
-    if ((bool)(this->line_01_activeRamps->length)) {
-        while ((bool)(this->line_01_activeRamps->length) && i < n) {
-            number destinationValue = this->line_01_activeRamps[0];
-            number inc = this->line_01_activeRamps[1];
-            number rampTimeInSamples = this->line_01_activeRamps[2] - this->audioProcessSampleCount - i;
-            number val = __line_01_currentValue;
-
-            while (rampTimeInSamples > 0 && i < n) {
-                out[(Index)i] = val;
-                val += inc;
-                i++;
-                rampTimeInSamples--;
-            }
-
-            if (rampTimeInSamples <= 0) {
-                val = destinationValue;
-                this->line_01_activeRamps->splice(0, 3);
-
-                if ((bool)(!(bool)(this->line_01_activeRamps->length))) this->getEngine()->scheduleClockEventWithValue(
-                    this,
-                    760652352,
-                    this->sampsToMs((SampleIndex)(this->vs)) + this->_currentTime,
-                    0
-                );;
-            }
-
-            __line_01_currentValue = val;
-        }
-    }
-
-    while (i < n) {
-        out[(Index)i] = __line_01_currentValue;
-        i++;
-    }
-
-    this->line_01_currentValue = __line_01_currentValue;
+static number param_03_value_constrain(number v) {
+    v = (v > 880 ? 880 : (v < 110 ? 110 : v));
+    return v;
 }
 
-void average_rms_tilde_01_perform(
-    const Sample * x,
-    number windowSize,
-    number reset,
+void cycle_tilde_03_frequency_set(number v) {
+    this->cycle_tilde_03_frequency = v;
+}
+
+void cycle_tilde_01_perform(
+    number frequency,
+    number phase_offset,
     SampleValue * out1,
+    SampleValue * out2,
     Index n
 ) {
-    RNBO_UNUSED(reset);
-    RNBO_UNUSED(windowSize);
+    RNBO_UNUSED(phase_offset);
+    auto __cycle_tilde_01_f2i = this->cycle_tilde_01_f2i;
+    auto __cycle_tilde_01_phasei = this->cycle_tilde_01_phasei;
     Index i;
 
     for (i = 0; i < n; i++) {
-        out1[(Index)i] = this->safesqrt(this->average_rms_tilde_01_av_next(x[(Index)i] * x[(Index)i], 0, 0));
-    }
-}
+        {
+            uint32_t uint_phase;
 
-void slide_tilde_01_perform(const Sample * x, number up, number down, SampleValue * out1, Index n) {
-    RNBO_UNUSED(down);
-    RNBO_UNUSED(up);
-    auto __slide_tilde_01_prev = this->slide_tilde_01_prev;
-    auto iup = this->safediv(1., this->maximum(1., rnbo_abs(10)));
-    auto idown = this->safediv(1., this->maximum(1., rnbo_abs(100)));
-    Index i;
-
-    for (i = 0; i < n; i++) {
-        number temp = x[(Index)i] - __slide_tilde_01_prev;
-        __slide_tilde_01_prev = __slide_tilde_01_prev + ((x[(Index)i] > __slide_tilde_01_prev ? iup : idown)) * temp;
-        out1[(Index)i] = __slide_tilde_01_prev;
-    }
-
-    this->slide_tilde_01_prev = __slide_tilde_01_prev;
-}
-
-void dspexpr_01_perform(const Sample * in1, SampleValue * out1, Index n) {
-    Index i;
-
-    for (i = 0; i < n; i++) {
-        out1[(Index)i] = rnbo_abs(in1[(Index)i]);//#map:_###_obj_###_:1
-    }
-}
-
-void rampsmooth_tilde_01_perform(const Sample * x, number up, number down, SampleValue * out1, Index n) {
-    auto __rampsmooth_tilde_01_increment = this->rampsmooth_tilde_01_increment;
-    auto __rampsmooth_tilde_01_index = this->rampsmooth_tilde_01_index;
-    auto __rampsmooth_tilde_01_prev = this->rampsmooth_tilde_01_prev;
-    Index i;
-
-    for (i = 0; i < n; i++) {
-        if (this->rampsmooth_tilde_01_d_next(x[(Index)i]) != 0.) {
-            if (x[(Index)i] > __rampsmooth_tilde_01_prev) {
-                number _up = up;
-
-                if (_up < 1)
-                    _up = 1;
-
-                __rampsmooth_tilde_01_index = _up;
-                __rampsmooth_tilde_01_increment = (x[(Index)i] - __rampsmooth_tilde_01_prev) / _up;
-            } else if (x[(Index)i] < __rampsmooth_tilde_01_prev) {
-                number _down = down;
-
-                if (_down < 1)
-                    _down = 1;
-
-                __rampsmooth_tilde_01_index = _down;
-                __rampsmooth_tilde_01_increment = (x[(Index)i] - __rampsmooth_tilde_01_prev) / _down;
-            }
-        }
-
-        if (__rampsmooth_tilde_01_index > 0) {
-            __rampsmooth_tilde_01_prev += __rampsmooth_tilde_01_increment;
-            __rampsmooth_tilde_01_index -= 1;
-        } else {
-            __rampsmooth_tilde_01_prev = x[(Index)i];
-        }
-
-        out1[(Index)i] = __rampsmooth_tilde_01_prev;
-    }
-
-    this->rampsmooth_tilde_01_prev = __rampsmooth_tilde_01_prev;
-    this->rampsmooth_tilde_01_index = __rampsmooth_tilde_01_index;
-    this->rampsmooth_tilde_01_increment = __rampsmooth_tilde_01_increment;
-}
-
-void line_01_segments_set(const list& v) {
-    this->line_01_segments = jsCreateListCopy(v);
-
-    if ((bool)(v->length)) {
-        auto currentTime = this->currentsampletime();
-        number lastRampValue = this->line_01_currentValue;
-        number rampEnd = currentTime - this->sampleOffsetIntoNextAudioBuffer;
-
-        for (Index i = 0; i < this->line_01_activeRamps->length; i += 3) {
-            rampEnd = this->line_01_activeRamps[(Index)(i + 2)];
-
-            if (rampEnd > currentTime) {
-                this->line_01_activeRamps[(Index)(i + 2)] = currentTime;
-                number diff = rampEnd - currentTime;
-                number valueDiff = diff * this->line_01_activeRamps[(Index)(i + 1)];
-                lastRampValue = this->line_01_activeRamps[(Index)i] - valueDiff;
-                this->line_01_activeRamps[(Index)i] = lastRampValue;
-                this->line_01_activeRamps->length = i + 3;
-                rampEnd = currentTime;
-            } else {
-                lastRampValue = this->line_01_activeRamps[(Index)i];
-            }
-        }
-
-        if (rampEnd < currentTime) {
-            this->line_01_activeRamps->push(lastRampValue);
-            this->line_01_activeRamps->push(0);
-            this->line_01_activeRamps->push(currentTime);
-        }
-
-        number lastRampEnd = currentTime;
-
-        for (Index i = 0; i < v->length; i += 2) {
-            number destinationValue = v[(Index)i];
-            number inc = 0;
-            number rampTimeInSamples;
-
-            if (v->length > i + 1) {
-                rampTimeInSamples = this->mstosamps(v[(Index)(i + 1)]);
-            } else {
-                rampTimeInSamples = this->mstosamps(this->line_01_time);
+            {
+                {
+                    uint_phase = __cycle_tilde_01_phasei;
+                }
             }
 
-            if (rampTimeInSamples <= 0)
-                rampTimeInSamples = 1;
+            uint32_t idx = (uint32_t)(uint32_rshift(uint_phase, 18));
+            number frac = ((BinOpInt)((UBinOpInt)uint_phase & (UBinOpInt)262143)) * 3.81471181759574e-6;
+            number y0 = this->cycle_tilde_01_buffer[(Index)idx];
+            number y1 = this->cycle_tilde_01_buffer[(Index)((UBinOpInt)(idx + 1) & (UBinOpInt)16383)];
+            number y = y0 + frac * (y1 - y0);
 
-            inc = (destinationValue - lastRampValue) / rampTimeInSamples;
-            lastRampEnd += rampTimeInSamples;
-            this->line_01_activeRamps->push(destinationValue);
-            this->line_01_activeRamps->push(inc);
-            this->line_01_activeRamps->push(lastRampEnd);
-            lastRampValue = destinationValue;
+            {
+                uint32_t pincr = (uint32_t)(uint32_trunc(frequency * __cycle_tilde_01_f2i));
+                __cycle_tilde_01_phasei = uint32_add(__cycle_tilde_01_phasei, pincr);
+            }
+
+            out1[(Index)i] = y;
+            out2[(Index)i] = uint_phase * 0.232830643653869629e-9;
+            continue;
         }
+    }
+
+    this->cycle_tilde_01_phasei = __cycle_tilde_01_phasei;
+}
+
+void cycle_tilde_02_perform(
+    number frequency,
+    number phase_offset,
+    SampleValue * out1,
+    SampleValue * out2,
+    Index n
+) {
+    RNBO_UNUSED(phase_offset);
+    auto __cycle_tilde_02_f2i = this->cycle_tilde_02_f2i;
+    auto __cycle_tilde_02_phasei = this->cycle_tilde_02_phasei;
+    Index i;
+
+    for (i = 0; i < n; i++) {
+        {
+            uint32_t uint_phase;
+
+            {
+                {
+                    uint_phase = __cycle_tilde_02_phasei;
+                }
+            }
+
+            uint32_t idx = (uint32_t)(uint32_rshift(uint_phase, 18));
+            number frac = ((BinOpInt)((UBinOpInt)uint_phase & (UBinOpInt)262143)) * 3.81471181759574e-6;
+            number y0 = this->cycle_tilde_02_buffer[(Index)idx];
+            number y1 = this->cycle_tilde_02_buffer[(Index)((UBinOpInt)(idx + 1) & (UBinOpInt)16383)];
+            number y = y0 + frac * (y1 - y0);
+
+            {
+                uint32_t pincr = (uint32_t)(uint32_trunc(frequency * __cycle_tilde_02_f2i));
+                __cycle_tilde_02_phasei = uint32_add(__cycle_tilde_02_phasei, pincr);
+            }
+
+            out1[(Index)i] = y;
+            out2[(Index)i] = uint_phase * 0.232830643653869629e-9;
+            continue;
+        }
+    }
+
+    this->cycle_tilde_02_phasei = __cycle_tilde_02_phasei;
+}
+
+void signaladder_01_perform(
+    const SampleValue * in1,
+    const SampleValue * in2,
+    SampleValue * out,
+    Index n
+) {
+    Index i;
+
+    for (i = 0; i < n; i++) {
+        out[(Index)i] = in1[(Index)i] + in2[(Index)i];
     }
 }
 
-void peakamp_01_perform(const SampleValue * input_signal, Index n) {
-    auto __peakamp_01_index = this->peakamp_01_index;
-    auto __peakamp_01_lastMaximum = this->peakamp_01_lastMaximum;
-    auto __peakamp_01_maxIndex = this->peakamp_01_maxIndex;
-    auto __peakamp_01_interval = this->peakamp_01_interval;
+void cycle_tilde_03_perform(
+    number frequency,
+    number phase_offset,
+    SampleValue * out1,
+    SampleValue * out2,
+    Index n
+) {
+    RNBO_UNUSED(phase_offset);
+    auto __cycle_tilde_03_f2i = this->cycle_tilde_03_f2i;
+    auto __cycle_tilde_03_phasei = this->cycle_tilde_03_phasei;
+    Index i;
 
-    for (Index i = 0; i < n; i++) {
-        if ((bool)(this->peakamp_01_d_next(__peakamp_01_interval))) {
-            __peakamp_01_maxIndex = this->mstosamps(__peakamp_01_interval);
-        }
+    for (i = 0; i < n; i++) {
+        {
+            uint32_t uint_phase;
 
-        number temp = rnbo_abs(input_signal[(Index)i]);
+            {
+                {
+                    uint_phase = __cycle_tilde_03_phasei;
+                }
+            }
 
-        if (temp > __peakamp_01_lastMaximum) {
-            __peakamp_01_lastMaximum = temp;
-        }
+            uint32_t idx = (uint32_t)(uint32_rshift(uint_phase, 18));
+            number frac = ((BinOpInt)((UBinOpInt)uint_phase & (UBinOpInt)262143)) * 3.81471181759574e-6;
+            number y0 = this->cycle_tilde_03_buffer[(Index)idx];
+            number y1 = this->cycle_tilde_03_buffer[(Index)((UBinOpInt)(idx + 1) & (UBinOpInt)16383)];
+            number y = y0 + frac * (y1 - y0);
 
-        __peakamp_01_index++;
+            {
+                uint32_t pincr = (uint32_t)(uint32_trunc(frequency * __cycle_tilde_03_f2i));
+                __cycle_tilde_03_phasei = uint32_add(__cycle_tilde_03_phasei, pincr);
+            }
 
-        if (__peakamp_01_maxIndex > 0 && __peakamp_01_index >= __peakamp_01_maxIndex) {
-            this->getEngine()->scheduleClockEventWithValue(
-                this,
-                1812006465,
-                this->sampsToMs((SampleIndex)(this->vs)) + this->_currentTime,
-                __peakamp_01_lastMaximum
-            );;
-
-            __peakamp_01_lastMaximum = 0;
-        }
-
-        if (__peakamp_01_maxIndex == 0 || __peakamp_01_index >= __peakamp_01_maxIndex) {
-            __peakamp_01_index = 0;
+            out1[(Index)i] = y;
+            out2[(Index)i] = uint_phase * 0.232830643653869629e-9;
+            continue;
         }
     }
 
-    this->peakamp_01_maxIndex = __peakamp_01_maxIndex;
-    this->peakamp_01_lastMaximum = __peakamp_01_lastMaximum;
-    this->peakamp_01_index = __peakamp_01_index;
+    this->cycle_tilde_03_phasei = __cycle_tilde_03_phasei;
+}
+
+void signaladder_02_perform(
+    const SampleValue * in1,
+    const SampleValue * in2,
+    SampleValue * out,
+    Index n
+) {
+    Index i;
+
+    for (i = 0; i < n; i++) {
+        out[(Index)i] = in1[(Index)i] + in2[(Index)i];
+    }
 }
 
 void stackprotect_perform(Index n) {
@@ -1005,137 +987,6 @@ void stackprotect_perform(Index n) {
     auto __stackprotect_count = this->stackprotect_count;
     __stackprotect_count = 0;
     this->stackprotect_count = __stackprotect_count;
-}
-
-number peakamp_01_d_next(number x) {
-    number temp = (number)(x - this->peakamp_01_d_prev);
-    this->peakamp_01_d_prev = x;
-    return temp;
-}
-
-void peakamp_01_d_dspsetup() {
-    this->peakamp_01_d_reset();
-}
-
-void peakamp_01_d_reset() {
-    this->peakamp_01_d_prev = 0;
-}
-
-void peakamp_01_dspsetup(bool force) {
-    if ((bool)(this->peakamp_01_setupDone) && (bool)(!(bool)(force)))
-        return;
-
-    this->peakamp_01_index = 0;
-    this->peakamp_01_lastMaximum = 0;
-    this->peakamp_01_lastOutput = 0;
-    this->peakamp_01_setupDone = true;
-    this->peakamp_01_d_dspsetup();
-}
-
-number average_rms_tilde_01_av_next(number x, int windowSize, bool reset) {
-    if (windowSize > 0)
-        this->average_rms_tilde_01_av_setwindowsize(windowSize);
-
-    if (reset != 0) {
-        if (this->average_rms_tilde_01_av_resetFlag != 1) {
-            this->average_rms_tilde_01_av_wantsReset = 1;
-            this->average_rms_tilde_01_av_resetFlag = 1;
-        }
-    } else {
-        this->average_rms_tilde_01_av_resetFlag = 0;
-    }
-
-    if (this->average_rms_tilde_01_av_wantsReset == 1) {
-        this->average_rms_tilde_01_av_doReset();
-    }
-
-    this->average_rms_tilde_01_av_accum += x;
-    this->average_rms_tilde_01_av_buffer[(Index)this->average_rms_tilde_01_av_bufferPos] = x;
-    number bufferSize = this->average_rms_tilde_01_av_buffer->getSize();
-
-    if (this->average_rms_tilde_01_av_effectiveWindowSize < this->average_rms_tilde_01_av_currentWindowSize) {
-        this->average_rms_tilde_01_av_effectiveWindowSize++;
-    } else {
-        number bufferReadPos = this->average_rms_tilde_01_av_bufferPos - this->average_rms_tilde_01_av_effectiveWindowSize;
-
-        while (bufferReadPos < 0)
-            bufferReadPos += bufferSize;
-
-        this->average_rms_tilde_01_av_accum -= this->average_rms_tilde_01_av_buffer[(Index)bufferReadPos];
-    }
-
-    this->average_rms_tilde_01_av_bufferPos++;
-
-    if (this->average_rms_tilde_01_av_bufferPos >= bufferSize) {
-        this->average_rms_tilde_01_av_bufferPos -= bufferSize;
-    }
-
-    return this->average_rms_tilde_01_av_accum / this->average_rms_tilde_01_av_effectiveWindowSize;
-}
-
-void average_rms_tilde_01_av_setwindowsize(int wsize) {
-    wsize = rnbo_trunc(wsize);
-
-    if (wsize != this->average_rms_tilde_01_av_currentWindowSize && wsize > 0 && wsize <= this->sr) {
-        this->average_rms_tilde_01_av_currentWindowSize = wsize;
-        this->average_rms_tilde_01_av_wantsReset = 1;
-    }
-}
-
-void average_rms_tilde_01_av_reset() {
-    this->average_rms_tilde_01_av_wantsReset = 1;
-}
-
-void average_rms_tilde_01_av_dspsetup() {
-    this->average_rms_tilde_01_av_wantsReset = 1;
-
-    if (this->sr > this->average_rms_tilde_01_av_buffer->getSize()) {
-        this->average_rms_tilde_01_av_buffer->setSize(this->sr + 1);
-        updateDataRef(this, this->average_rms_tilde_01_av_buffer);
-    }
-}
-
-void average_rms_tilde_01_av_doReset() {
-    this->average_rms_tilde_01_av_accum = 0;
-    this->average_rms_tilde_01_av_effectiveWindowSize = 0;
-    this->average_rms_tilde_01_av_bufferPos = 0;
-    this->average_rms_tilde_01_av_wantsReset = 0;
-}
-
-void average_rms_tilde_01_av_init() {
-    this->average_rms_tilde_01_av_currentWindowSize = this->sr;
-    this->average_rms_tilde_01_av_buffer->requestSize(this->sr + 1, 1);
-    this->average_rms_tilde_01_av_doReset();
-}
-
-void average_rms_tilde_01_dspsetup(bool force) {
-    if ((bool)(this->average_rms_tilde_01_setupDone) && (bool)(!(bool)(force)))
-        return;
-
-    this->average_rms_tilde_01_setupDone = true;
-    this->average_rms_tilde_01_av_dspsetup();
-}
-
-number rampsmooth_tilde_01_d_next(number x) {
-    number temp = (number)(x - this->rampsmooth_tilde_01_d_prev);
-    this->rampsmooth_tilde_01_d_prev = x;
-    return temp;
-}
-
-void rampsmooth_tilde_01_d_dspsetup() {
-    this->rampsmooth_tilde_01_d_reset();
-}
-
-void rampsmooth_tilde_01_d_reset() {
-    this->rampsmooth_tilde_01_d_prev = 0;
-}
-
-void rampsmooth_tilde_01_dspsetup(bool force) {
-    if ((bool)(this->rampsmooth_tilde_01_setupDone) && (bool)(!(bool)(force)))
-        return;
-
-    this->rampsmooth_tilde_01_setupDone = true;
-    this->rampsmooth_tilde_01_d_dspsetup();
 }
 
 void param_01_getPresetValue(PatcherStateInterface& preset) {
@@ -1149,6 +1000,50 @@ void param_01_setPresetValue(PatcherStateInterface& preset) {
     this->param_01_value_set(preset["value"]);
 }
 
+number cycle_tilde_01_ph_next(number freq, number reset) {
+    {
+        {
+            if (reset >= 0.)
+                this->cycle_tilde_01_ph_currentPhase = reset;
+        }
+    }
+
+    number pincr = freq * this->cycle_tilde_01_ph_conv;
+
+    if (this->cycle_tilde_01_ph_currentPhase < 0.)
+        this->cycle_tilde_01_ph_currentPhase = 1. + this->cycle_tilde_01_ph_currentPhase;
+
+    if (this->cycle_tilde_01_ph_currentPhase > 1.)
+        this->cycle_tilde_01_ph_currentPhase = this->cycle_tilde_01_ph_currentPhase - 1.;
+
+    number tmp = this->cycle_tilde_01_ph_currentPhase;
+    this->cycle_tilde_01_ph_currentPhase += pincr;
+    return tmp;
+}
+
+void cycle_tilde_01_ph_reset() {
+    this->cycle_tilde_01_ph_currentPhase = 0;
+}
+
+void cycle_tilde_01_ph_dspsetup() {
+    this->cycle_tilde_01_ph_conv = (number)1 / this->sr;
+}
+
+void cycle_tilde_01_dspsetup(bool force) {
+    if ((bool)(this->cycle_tilde_01_setupDone) && (bool)(!(bool)(force)))
+        return;
+
+    this->cycle_tilde_01_phasei = 0;
+    this->cycle_tilde_01_f2i = (number)4294967296 / this->samplerate();
+    this->cycle_tilde_01_wrap = (long)(this->cycle_tilde_01_buffer->getSize()) - 1;
+    this->cycle_tilde_01_setupDone = true;
+    this->cycle_tilde_01_ph_dspsetup();
+}
+
+void cycle_tilde_01_bufferUpdated() {
+    this->cycle_tilde_01_wrap = (long)(this->cycle_tilde_01_buffer->getSize()) - 1;
+}
+
 void param_02_getPresetValue(PatcherStateInterface& preset) {
     preset["value"] = this->param_02_value;
 }
@@ -1158,6 +1053,105 @@ void param_02_setPresetValue(PatcherStateInterface& preset) {
         return;
 
     this->param_02_value_set(preset["value"]);
+}
+
+number cycle_tilde_02_ph_next(number freq, number reset) {
+    {
+        {
+            if (reset >= 0.)
+                this->cycle_tilde_02_ph_currentPhase = reset;
+        }
+    }
+
+    number pincr = freq * this->cycle_tilde_02_ph_conv;
+
+    if (this->cycle_tilde_02_ph_currentPhase < 0.)
+        this->cycle_tilde_02_ph_currentPhase = 1. + this->cycle_tilde_02_ph_currentPhase;
+
+    if (this->cycle_tilde_02_ph_currentPhase > 1.)
+        this->cycle_tilde_02_ph_currentPhase = this->cycle_tilde_02_ph_currentPhase - 1.;
+
+    number tmp = this->cycle_tilde_02_ph_currentPhase;
+    this->cycle_tilde_02_ph_currentPhase += pincr;
+    return tmp;
+}
+
+void cycle_tilde_02_ph_reset() {
+    this->cycle_tilde_02_ph_currentPhase = 0;
+}
+
+void cycle_tilde_02_ph_dspsetup() {
+    this->cycle_tilde_02_ph_conv = (number)1 / this->sr;
+}
+
+void cycle_tilde_02_dspsetup(bool force) {
+    if ((bool)(this->cycle_tilde_02_setupDone) && (bool)(!(bool)(force)))
+        return;
+
+    this->cycle_tilde_02_phasei = 0;
+    this->cycle_tilde_02_f2i = (number)4294967296 / this->samplerate();
+    this->cycle_tilde_02_wrap = (long)(this->cycle_tilde_02_buffer->getSize()) - 1;
+    this->cycle_tilde_02_setupDone = true;
+    this->cycle_tilde_02_ph_dspsetup();
+}
+
+void cycle_tilde_02_bufferUpdated() {
+    this->cycle_tilde_02_wrap = (long)(this->cycle_tilde_02_buffer->getSize()) - 1;
+}
+
+void param_03_getPresetValue(PatcherStateInterface& preset) {
+    preset["value"] = this->param_03_value;
+}
+
+void param_03_setPresetValue(PatcherStateInterface& preset) {
+    if ((bool)(stateIsEmpty(preset)))
+        return;
+
+    this->param_03_value_set(preset["value"]);
+}
+
+number cycle_tilde_03_ph_next(number freq, number reset) {
+    {
+        {
+            if (reset >= 0.)
+                this->cycle_tilde_03_ph_currentPhase = reset;
+        }
+    }
+
+    number pincr = freq * this->cycle_tilde_03_ph_conv;
+
+    if (this->cycle_tilde_03_ph_currentPhase < 0.)
+        this->cycle_tilde_03_ph_currentPhase = 1. + this->cycle_tilde_03_ph_currentPhase;
+
+    if (this->cycle_tilde_03_ph_currentPhase > 1.)
+        this->cycle_tilde_03_ph_currentPhase = this->cycle_tilde_03_ph_currentPhase - 1.;
+
+    number tmp = this->cycle_tilde_03_ph_currentPhase;
+    this->cycle_tilde_03_ph_currentPhase += pincr;
+    return tmp;
+}
+
+void cycle_tilde_03_ph_reset() {
+    this->cycle_tilde_03_ph_currentPhase = 0;
+}
+
+void cycle_tilde_03_ph_dspsetup() {
+    this->cycle_tilde_03_ph_conv = (number)1 / this->sr;
+}
+
+void cycle_tilde_03_dspsetup(bool force) {
+    if ((bool)(this->cycle_tilde_03_setupDone) && (bool)(!(bool)(force)))
+        return;
+
+    this->cycle_tilde_03_phasei = 0;
+    this->cycle_tilde_03_f2i = (number)4294967296 / this->samplerate();
+    this->cycle_tilde_03_wrap = (long)(this->cycle_tilde_03_buffer->getSize()) - 1;
+    this->cycle_tilde_03_setupDone = true;
+    this->cycle_tilde_03_ph_dspsetup();
+}
+
+void cycle_tilde_03_bufferUpdated() {
+    this->cycle_tilde_03_wrap = (long)(this->cycle_tilde_03_buffer->getSize()) - 1;
 }
 
 number globaltransport_getTempoAtSample(SampleIndex sampleOffset) {
@@ -1398,54 +1392,42 @@ void updateTime(MillisecondTime time) {
 
 void assign_defaults()
 {
-    line_01_time = 100;
-    peakamp_01_interval = 100;
-    peakamp_01_output = 0;
-    slide_tilde_01_x = 0;
-    slide_tilde_01_up = 10;
-    slide_tilde_01_down = 100;
-    average_rms_tilde_01_x = 0;
-    average_rms_tilde_01_windowSize = 0;
-    average_rms_tilde_01_reset = 0;
-    rampsmooth_tilde_01_x = 0;
-    rampsmooth_tilde_01_up = 0;
-    rampsmooth_tilde_01_down = 0;
-    dspexpr_01_in1 = 0;
-    param_01_value = 200;
-    param_02_value = 1000;
+    param_01_value = 440;
+    cycle_tilde_01_frequency = 440;
+    cycle_tilde_01_phase_offset = 0;
+    param_02_value = 550;
+    cycle_tilde_02_frequency = 660;
+    cycle_tilde_02_phase_offset = 0;
+    param_03_value = 660;
+    cycle_tilde_03_frequency = 880;
+    cycle_tilde_03_phase_offset = 0;
     _currentTime = 0;
     audioProcessSampleCount = 0;
     sampleOffsetIntoNextAudioBuffer = 0;
     zeroBuffer = nullptr;
     dummyBuffer = nullptr;
     signals[0] = nullptr;
+    signals[1] = nullptr;
     didAllocateSignals = 0;
     vs = 0;
     maxvs = 0;
     sr = 44100;
     invsr = 0.00002267573696;
-    line_01_currentValue = 0;
-    peakamp_01_index = 0;
-    peakamp_01_maxIndex = 0;
-    peakamp_01_lastMaximum = 0;
-    peakamp_01_lastOutput = 0;
-    peakamp_01_d_prev = 0;
-    peakamp_01_setupDone = false;
-    slide_tilde_01_prev = 0;
-    average_rms_tilde_01_av_currentWindowSize = 44100;
-    average_rms_tilde_01_av_accum = 0;
-    average_rms_tilde_01_av_effectiveWindowSize = 0;
-    average_rms_tilde_01_av_bufferPos = 0;
-    average_rms_tilde_01_av_wantsReset = false;
-    average_rms_tilde_01_av_resetFlag = false;
-    average_rms_tilde_01_setupDone = false;
-    rampsmooth_tilde_01_prev = 0;
-    rampsmooth_tilde_01_index = 0;
-    rampsmooth_tilde_01_increment = 0;
-    rampsmooth_tilde_01_d_prev = 0;
-    rampsmooth_tilde_01_setupDone = false;
     param_01_lastValue = 0;
+    cycle_tilde_01_wrap = 0;
+    cycle_tilde_01_ph_currentPhase = 0;
+    cycle_tilde_01_ph_conv = 0;
+    cycle_tilde_01_setupDone = false;
     param_02_lastValue = 0;
+    cycle_tilde_02_wrap = 0;
+    cycle_tilde_02_ph_currentPhase = 0;
+    cycle_tilde_02_ph_conv = 0;
+    cycle_tilde_02_setupDone = false;
+    param_03_lastValue = 0;
+    cycle_tilde_03_wrap = 0;
+    cycle_tilde_03_ph_currentPhase = 0;
+    cycle_tilde_03_ph_conv = 0;
+    cycle_tilde_03_setupDone = false;
     globaltransport_tempo = nullptr;
     globaltransport_tempoNeedsReset = false;
     globaltransport_lastTempo = 120;
@@ -1464,57 +1446,50 @@ void assign_defaults()
 
 // member variables
 
-    list line_01_segments;
-    number line_01_time;
-    number peakamp_01_interval;
-    number peakamp_01_output;
-    number slide_tilde_01_x;
-    number slide_tilde_01_up;
-    number slide_tilde_01_down;
-    number average_rms_tilde_01_x;
-    number average_rms_tilde_01_windowSize;
-    number average_rms_tilde_01_reset;
-    number rampsmooth_tilde_01_x;
-    number rampsmooth_tilde_01_up;
-    number rampsmooth_tilde_01_down;
-    number dspexpr_01_in1;
     number param_01_value;
+    number cycle_tilde_01_frequency;
+    number cycle_tilde_01_phase_offset;
     number param_02_value;
+    number cycle_tilde_02_frequency;
+    number cycle_tilde_02_phase_offset;
+    number param_03_value;
+    number cycle_tilde_03_frequency;
+    number cycle_tilde_03_phase_offset;
     MillisecondTime _currentTime;
     SampleIndex audioProcessSampleCount;
     SampleIndex sampleOffsetIntoNextAudioBuffer;
     signal zeroBuffer;
     signal dummyBuffer;
-    SampleValue * signals[1];
+    SampleValue * signals[2];
     bool didAllocateSignals;
     Index vs;
     Index maxvs;
     number sr;
     number invsr;
-    list line_01_activeRamps;
-    number line_01_currentValue;
-    int peakamp_01_index;
-    int peakamp_01_maxIndex;
-    number peakamp_01_lastMaximum;
-    number peakamp_01_lastOutput;
-    number peakamp_01_d_prev;
-    bool peakamp_01_setupDone;
-    number slide_tilde_01_prev;
-    int average_rms_tilde_01_av_currentWindowSize;
-    number average_rms_tilde_01_av_accum;
-    int average_rms_tilde_01_av_effectiveWindowSize;
-    int average_rms_tilde_01_av_bufferPos;
-    bool average_rms_tilde_01_av_wantsReset;
-    bool average_rms_tilde_01_av_resetFlag;
-    Float64BufferRef average_rms_tilde_01_av_buffer;
-    bool average_rms_tilde_01_setupDone;
-    number rampsmooth_tilde_01_prev;
-    number rampsmooth_tilde_01_index;
-    number rampsmooth_tilde_01_increment;
-    number rampsmooth_tilde_01_d_prev;
-    bool rampsmooth_tilde_01_setupDone;
     number param_01_lastValue;
+    Float64BufferRef cycle_tilde_01_buffer;
+    long cycle_tilde_01_wrap;
+    uint32_t cycle_tilde_01_phasei;
+    SampleValue cycle_tilde_01_f2i;
+    number cycle_tilde_01_ph_currentPhase;
+    number cycle_tilde_01_ph_conv;
+    bool cycle_tilde_01_setupDone;
     number param_02_lastValue;
+    Float64BufferRef cycle_tilde_02_buffer;
+    long cycle_tilde_02_wrap;
+    uint32_t cycle_tilde_02_phasei;
+    SampleValue cycle_tilde_02_f2i;
+    number cycle_tilde_02_ph_currentPhase;
+    number cycle_tilde_02_ph_conv;
+    bool cycle_tilde_02_setupDone;
+    number param_03_lastValue;
+    Float64BufferRef cycle_tilde_03_buffer;
+    long cycle_tilde_03_wrap;
+    uint32_t cycle_tilde_03_phasei;
+    SampleValue cycle_tilde_03_f2i;
+    number cycle_tilde_03_ph_currentPhase;
+    number cycle_tilde_03_ph_conv;
+    bool cycle_tilde_03_setupDone;
     signal globaltransport_tempo;
     bool globaltransport_tempoNeedsReset;
     number globaltransport_lastTempo;
@@ -1526,7 +1501,7 @@ void assign_defaults()
     bool globaltransport_notify;
     bool globaltransport_setupDone;
     number stackprotect_count;
-    DataRef average_rms_tilde_01_av_bufferobj;
+    DataRef RNBODefaultSinus;
     Index _voiceIndex;
     Int _noteNumber;
     Index isMuted;

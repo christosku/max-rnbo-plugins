@@ -21,19 +21,17 @@
 namespace rnbo = RNBO;
 
 START_NAMESPACE_DISTRHO
-
 // --------------------------------------------------------------------------------------------------------------------
 
 DistrhoPluginMaxRnbo::DistrhoPluginMaxRnbo()
-    : Plugin(gen::num_params(), 0, 0), // 0 programs, 0 states
-      fGenState((CommonState*)gen::create(getSampleRate(), getBufferSize()))
+    : Plugin(getRnbo()->getNumParameters(), 0, 0)
 {
-    gen::reset(fGenState);
+    rnboObject = getRnbo();
+    rnboObject->prepareToProcess(getSampleRate(), getBufferSize());
 }
 
 DistrhoPluginMaxRnbo::~DistrhoPluginMaxRnbo()
 {
-    gen::destroy(fGenState);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -59,32 +57,35 @@ void DistrhoPluginMaxRnbo::initAudioPort(const bool input, const uint32_t index,
 
 void DistrhoPluginMaxRnbo::initParameter(const uint32_t index, Parameter& parameter)
 {
-    ParamInfo& info(fGenState->params[index]);
+    rnbo::ParameterInfo info;
+    rnbo::ConstCharPointer name = rnboObject->getParameterName(index);
+    rnbo::ConstCharPointer id = DistrhoPluginMaxRnbo::rnboObject->getParameterId(index);
+    rnboObject->getParameterInfo(index, &info);
+
+    
 
     parameter.hints      = kParameterIsAutomatable;
-    parameter.name       = info.name;
-    parameter.symbol     = info.name;
-    parameter.unit       = info.units;
-    parameter.ranges.def = info.defaultvalue;
-    parameter.ranges.min = info.outputmin;
-    parameter.ranges.max = info.outputmax;
+    parameter.name       = name;
+    parameter.symbol     = name;
+    parameter.unit       = info.unit;
+    parameter.ranges.def = info.initialValue;
+    parameter.ranges.min = info.min;
+    parameter.ranges.max = info.max;
 
     parameter.symbol.toBasic();
 }
-
 // --------------------------------------------------------------------------------------------------------------------
 // Internal data
 
 float DistrhoPluginMaxRnbo::getParameterValue(const uint32_t index) const
 {
-    t_param value = 0.f;
-    gen::getparameter(fGenState, index, &value);
+    rnbo::ParameterValue value = rnboObject->getParameterValue(index);
     return value;
 }
 
 void DistrhoPluginMaxRnbo::setParameterValue(const uint32_t index, const float value)
 {
-    gen::setparameter(fGenState, index, value, nullptr);
+    rnboObject->setParameterValue(index, value);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -92,7 +93,9 @@ void DistrhoPluginMaxRnbo::setParameterValue(const uint32_t index, const float v
 
 void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames)
 {
-    gen::perform(fGenState, (float**)inputs, gen::gen_kernel_numins, outputs, gen::gen_kernel_numouts, frames);
+    rnbo::SampleValue** rnboInputs = nullptr;
+
+    rnboObject->process(rnboInputs, 0, outputs, 2, frames);
 }
 
 // --------------------------------------------------------------------------------------------------------------------

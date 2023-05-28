@@ -15,9 +15,9 @@
  */
 
 #pragma once
-
+#define RNBO_USE_FLOAT32
 #include "DistrhoPlugin.hpp"
-
+#include "RNBO.h"
 START_NAMESPACE_DISTRHO
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -78,6 +78,7 @@ protected:
 
     float getParameterValue(uint32_t index) const override;
     void setParameterValue(uint32_t index, float value) override;
+    static uint32_t getNumParameters();
 
     // ----------------------------------------------------------------------------------------------------------------
     // Process
@@ -87,8 +88,16 @@ protected:
     // ----------------------------------------------------------------------------------------------------------------
 
 private:
-    // CommonState* fGenState;
+    static RNBO::CoreObject* getRnbo() {
+        static RNBO::CoreObject* rnbo = nullptr;
+        if (!rnbo) {
+            rnbo = new RNBO::CoreObject();
+        }
+        return rnbo;
+    }
 
+    RNBO::CoreObject* rnboObject;
+    
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DistrhoPluginMaxRnbo)
 };
 

@@ -25,6 +25,7 @@ BUILD_CXX_FLAGS += -I./max-rnbo/rnbo/common
 BUILD_CXX_FLAGS += -I./plugins/$(NAME)
 BUILD_CXX_FLAGS += -Wno-unused-parameter
 BUILD_CXX_FLAGS += -Wno-unused-variable
+BUILD_CXX_FLAGS += -ftemplate-depth=4096
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Enable all useful plugin types
