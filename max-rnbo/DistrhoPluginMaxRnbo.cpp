@@ -17,14 +17,13 @@
 #include "DistrhoPluginMaxRnbo.hpp"
 
 #include "rnbo_source.cpp"
-
-namespace rnbo = RNBO;
+#define RNBO_USE_FLOAT32
 
 START_NAMESPACE_DISTRHO
 // --------------------------------------------------------------------------------------------------------------------
 
 DistrhoPluginMaxRnbo::DistrhoPluginMaxRnbo()
-    : Plugin(getRnbo()->getNumParameters(), 0, 0)
+    : Plugin(getNumVisibleParameters(), 0, 0)
 {
     rnboObject = getRnbo();
     rnboObject->prepareToProcess(getSampleRate(), getBufferSize());
@@ -57,9 +56,9 @@ void DistrhoPluginMaxRnbo::initAudioPort(const bool input, const uint32_t index,
 
 void DistrhoPluginMaxRnbo::initParameter(const uint32_t index, Parameter& parameter)
 {
-    rnbo::ParameterInfo info;
-    rnbo::ConstCharPointer name = rnboObject->getParameterName(index);
-    rnbo::ConstCharPointer id = DistrhoPluginMaxRnbo::rnboObject->getParameterId(index);
+    RNBO::ParameterInfo info;
+    RNBO::ConstCharPointer name = rnboObject->getParameterName(index);
+    RNBO::ConstCharPointer id = DistrhoPluginMaxRnbo::rnboObject->getParameterId(index);
     rnboObject->getParameterInfo(index, &info);
 
     
@@ -74,12 +73,25 @@ void DistrhoPluginMaxRnbo::initParameter(const uint32_t index, Parameter& parame
 
     parameter.symbol.toBasic();
 }
+
+// void DistrhoPluginMaxRnbo::initParameterMapping()
+// {
+//     uint32_t paramCount = rnboObject->getNumParameters();
+//     uint32_t paramMapping[] = uint32_t[paramCount];
+//     for (uint32_t i = 0; i < paramCount; i++) {
+//          RNBO::ParameterInfo info;
+//         rnboObject->getParameterInfo(i, &info);
+//         if (info.visible) {
+//             visibleParamCount++;
+//         }
+//     }
+// }
 // --------------------------------------------------------------------------------------------------------------------
 // Internal data
 
 float DistrhoPluginMaxRnbo::getParameterValue(const uint32_t index) const
 {
-    rnbo::ParameterValue value = rnboObject->getParameterValue(index);
+    RNBO::ParameterValue value = rnboObject->getParameterValue(index);
     return value;
 }
 
@@ -90,12 +102,16 @@ void DistrhoPluginMaxRnbo::setParameterValue(const uint32_t index, const float v
 
 // --------------------------------------------------------------------------------------------------------------------
 // Process
-
-void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames)
+void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount)
 {
-    rnbo::SampleValue** rnboInputs = nullptr;
-
-    rnboObject->process(rnboInputs, 0, outputs, 2, frames);
+    // RNBO::SampleValue** rnboInputs = nullptr;
+    rnboObject->process(
+        (float**)inputs, 
+        rnboObject->getNumInputChannels(), 
+        outputs, 
+        rnboObject->getNumOutputChannels(), 
+        frames
+    );
 }
 
 // --------------------------------------------------------------------------------------------------------------------

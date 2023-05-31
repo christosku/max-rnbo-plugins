@@ -15,7 +15,6 @@
  */
 
 #pragma once
-#define RNBO_USE_FLOAT32
 #include "DistrhoPlugin.hpp"
 #include "RNBO.h"
 START_NAMESPACE_DISTRHO
@@ -72,18 +71,17 @@ protected:
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override;
     void initParameter(uint32_t index, Parameter& parameter) override;
+    // void initParameterMapping();
 
     // ----------------------------------------------------------------------------------------------------------------
     // Internal data
 
     float getParameterValue(uint32_t index) const override;
     void setParameterValue(uint32_t index, float value) override;
-    static uint32_t getNumParameters();
 
     // ----------------------------------------------------------------------------------------------------------------
     // Process
-
-    void run(const float** inputs, float** outputs, uint32_t frames) override;
+    void run(const float** inputs, float** outputs, uint32_t frames,  const MidiEvent* midiEvents, uint32_t midiEventCount) override;
 
     // ----------------------------------------------------------------------------------------------------------------
 
@@ -96,7 +94,25 @@ private:
         return rnbo;
     }
 
+    //Get the number of parameters that are visible in the UI
+    static uint32_t getNumVisibleParameters() {
+        RNBO::CoreObject* rnboObject = getRnbo();
+        uint32_t paramCount = rnboObject->getNumParameters();
+        uint32_t visibleParamCount = 0;
+        for (uint32_t i = 0; i < paramCount; i++) {
+            RNBO::ParameterInfo info;
+            rnboObject->getParameterInfo(i, &info);
+            if (info.visible) {
+                visibleParamCount++;
+            }
+        }
+        return visibleParamCount;
+    }
+
     RNBO::CoreObject* rnboObject;
+
+    // uint32_t paramMapping[];
+    
     
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DistrhoPluginMaxRnbo)
 };
