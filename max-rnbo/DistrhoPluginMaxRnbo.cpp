@@ -140,6 +140,7 @@ void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs
         &rnboMidiOutEvents
     );
 
+#if DISTRHO_PLUGIN_WANT_MIDI_OUTPUT
     // Convert outgoing RNBO::MidiEventList to Distrho MIDI events and push them out
     for (RNBO::MidiEvent rnboMidiOutEvent : rnboMidiOutEvents) {
         MidiEvent midiEvent;
@@ -151,6 +152,8 @@ void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs
         }
         writeMidiEvent(midiEvent);
     }
+#endif
+
 }
 #else
 void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames)
