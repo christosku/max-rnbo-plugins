@@ -78,11 +78,14 @@ protected:
 
     float getParameterValue(uint32_t index) const override;
     void setParameterValue(uint32_t index, float value) override;
-
+    void mapParameters();
     // ----------------------------------------------------------------------------------------------------------------
     // Process
+#if DISTRHO_PLUGIN_WANT_MIDI_INPUT || DISTRHO_PLUGIN_WANT_MIDI_OUTPUT
     void run(const float** inputs, float** outputs, uint32_t frames,  const MidiEvent* midiEvents, uint32_t midiEventCount) override;
-
+#else
+    void run(const float** inputs, float** outputs, uint32_t frames) override;
+#endif
     // ----------------------------------------------------------------------------------------------------------------
 
 private:
@@ -109,10 +112,11 @@ private:
         return visibleParamCount;
     }
 
-    RNBO::CoreObject* rnboObject;
+    uint32_t getMappedParameterIndex(uint32_t index) const;
 
-    // uint32_t paramMapping[];
-    
+    std::vector<uint32_t> paramMapping;
+
+    RNBO::CoreObject* rnboObject;
     
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DistrhoPluginMaxRnbo)
 };

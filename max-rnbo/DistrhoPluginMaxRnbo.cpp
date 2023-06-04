@@ -26,6 +26,7 @@ DistrhoPluginMaxRnbo::DistrhoPluginMaxRnbo()
     : Plugin(getNumVisibleParameters(), 0, 0)
 {
     rnboObject = getRnbo();
+    mapParameters();
     rnboObject->prepareToProcess(getSampleRate(), getBufferSize());
 }
 
@@ -38,17 +39,20 @@ DistrhoPluginMaxRnbo::~DistrhoPluginMaxRnbo()
 
 void DistrhoPluginMaxRnbo::initAudioPort(const bool input, const uint32_t index, AudioPort& port)
 {
-    if (DISTRHO_PLUGIN_NUM_INPUTS == DISTRHO_PLUGIN_NUM_OUTPUTS)
+    // Check if the port is supposed to be a cv port
+    uint32_t cvPorts[ DISTRHO_PLUGIN_NUM_INPUTS + DISTRHO_PLUGIN_NUM_OUTPUTS] = DISTRHO_PLUGIN_CV_PORTS;
+    bool isCv = false;
+    if (input)
     {
-        switch (DISTRHO_PLUGIN_NUM_INPUTS)
-        {
-        case 1:
-            port.groupId = kPortGroupMono;
-            break;
-        case 2:
-            port.groupId = kPortGroupStereo;
-            break;
-        }
+        isCv = cvPorts[index];
+    } 
+    else {
+        isCv = cvPorts[index + DISTRHO_PLUGIN_NUM_INPUTS];
+    }
+
+    if (isCv)
+    {
+        port.hints = kAudioPortIsCV | kCVPortHasBipolarRange | kCVPortHasScaledRange;
     }
 
     Plugin::initAudioPort(input, index, port);
@@ -57,9 +61,9 @@ void DistrhoPluginMaxRnbo::initAudioPort(const bool input, const uint32_t index,
 void DistrhoPluginMaxRnbo::initParameter(const uint32_t index, Parameter& parameter)
 {
     RNBO::ParameterInfo info;
-    RNBO::ConstCharPointer name = rnboObject->getParameterName(index);
-    RNBO::ConstCharPointer id = DistrhoPluginMaxRnbo::rnboObject->getParameterId(index);
-    rnboObject->getParameterInfo(index, &info);
+    RNBO::ConstCharPointer name = rnboObject->getParameterName(getMappedParameterIndex(index));
+    RNBO::ConstCharPointer id = DistrhoPluginMaxRnbo::rnboObject->getParameterId(getMappedParameterIndex(index));
+    rnboObject->getParameterInfo(getMappedParameterIndex(index), &info);
 
     
 
@@ -74,37 +78,83 @@ void DistrhoPluginMaxRnbo::initParameter(const uint32_t index, Parameter& parame
     parameter.symbol.toBasic();
 }
 
-// void DistrhoPluginMaxRnbo::initParameterMapping()
-// {
-//     uint32_t paramCount = rnboObject->getNumParameters();
-//     uint32_t paramMapping[] = uint32_t[paramCount];
-//     for (uint32_t i = 0; i < paramCount; i++) {
-//          RNBO::ParameterInfo info;
-//         rnboObject->getParameterInfo(i, &info);
-//         if (info.visible) {
-//             visibleParamCount++;
-//         }
-//     }
-// }
 // --------------------------------------------------------------------------------------------------------------------
 // Internal data
 
 float DistrhoPluginMaxRnbo::getParameterValue(const uint32_t index) const
 {
-    RNBO::ParameterValue value = rnboObject->getParameterValue(index);
+    RNBO::ParameterValue value = rnboObject->getParameterValue(getMappedParameterIndex(index));
     return value;
 }
 
 void DistrhoPluginMaxRnbo::setParameterValue(const uint32_t index, const float value)
 {
-    rnboObject->setParameterValue(index, value);
+    rnboObject->setParameterValue(getMappedParameterIndex(index), value);
+}
+
+void DistrhoPluginMaxRnbo::mapParameters()
+{
+    uint32_t paramCount = rnboObject->getNumParameters();
+    for (uint32_t i = 0; i < paramCount; i++) {
+        RNBO::ParameterInfo info;
+        rnboObject->getParameterInfo(i, &info);
+        if (info.visible) {
+            paramMapping.push_back(i);
+        }
+    }
+}
+
+uint32_t DistrhoPluginMaxRnbo::getMappedParameterIndex(const uint32_t index) const
+{
+    return paramMapping[index];
 }
 
 // --------------------------------------------------------------------------------------------------------------------
 // Process
+#if DISTRHO_PLUGIN_WANT_MIDI_INPUT || DISTRHO_PLUGIN_WANT_MIDI_OUTPUT
 void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames, const MidiEvent* midiEvents, uint32_t midiEventCount)
 {
-    // RNBO::SampleValue** rnboInputs = nullptr;
+    // Convert and push incoming Distrho MIDI events to an RNBO::MidiEventList
+    RNBO::MidiEventList rnboMidiInEvents;
+    for (uint32_t i=0; i<midiEventCount; ++i) {
+        MidiEvent midiEvent = midiEvents[i];
+        RNBO::MidiEvent rnboMidiEvent = RNBO::MidiEvent(
+            0, // have no idea what these are for
+            0, // this too :/
+            midiEvent.data,
+            midiEvent.size
+        );
+
+        rnboMidiInEvents.addEvent(rnboMidiEvent);
+    }
+    
+    RNBO::MidiEventList rnboMidiOutEvents;
+
+    rnboObject->process(
+        (float**)inputs, 
+        rnboObject->getNumInputChannels(), 
+        outputs, 
+        rnboObject->getNumOutputChannels(), 
+        frames,
+        &rnboMidiInEvents,
+        &rnboMidiOutEvents
+    );
+
+    // Convert outgoing RNBO::MidiEventList to Distrho MIDI events and push them out
+    for (RNBO::MidiEvent rnboMidiOutEvent : rnboMidiOutEvents) {
+        MidiEvent midiEvent;
+        midiEvent.frame = 0;
+        midiEvent.size = rnboMidiOutEvent.getLength();
+        RNBO::ConstByteArray midiData = rnboMidiOutEvent.getData();
+        for (uint32_t i=0; i<midiEvent.size; ++i) {
+            midiEvent.data[i] = midiData[i];
+        }
+        writeMidiEvent(midiEvent);
+    }
+}
+#else
+void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs, const uint32_t frames)
+{
     rnboObject->process(
         (float**)inputs, 
         rnboObject->getNumInputChannels(), 
@@ -113,6 +163,7 @@ void DistrhoPluginMaxRnbo::run(const float** const inputs, float** const outputs
         frames
     );
 }
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
