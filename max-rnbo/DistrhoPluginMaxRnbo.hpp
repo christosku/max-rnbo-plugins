@@ -38,7 +38,7 @@ protected:
 
     const char* getDescription() const noexcept override
     {
-        return "Generated from Max gen~ and github.com/moddevices/max-gen-plugins";
+        return "Generated from Max rnbo~ and github.com/christosku/max-rnbo-plugins";
     }
 
     int64_t getUniqueId() const noexcept override
@@ -53,7 +53,7 @@ protected:
 
     const char* getHomePage() const noexcept override
     {
-        return "https://github.com/moddevices/max-gen-plugins";
+        return "https://github.com/christosku/max-rnbo-plugins";
     }
 
     const char* getLicense() const noexcept override
@@ -71,7 +71,6 @@ protected:
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override;
     void initParameter(uint32_t index, Parameter& parameter) override;
-    // void initParameterMapping();
 
     // ----------------------------------------------------------------------------------------------------------------
     // Internal data
